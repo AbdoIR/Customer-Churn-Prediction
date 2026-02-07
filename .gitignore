@@ -1,2 +1,4 @@
 local*
 *.csv
+models/
+/eda_results
