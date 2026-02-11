@@ -154,26 +154,20 @@ def train_and_optimize(X_train, y_train, X_test, y_test):
     return best_overall_model, all_results
 
 def visualize_performance(results, y_test):
-    """
-    Generates 3 Figures:
-    1. ROC-AUC Curves (Side-by-side)
-    2. Precision-Recall Curves (Side-by-side)
-    3. Confusion Matrices (Side-by-side)
-    """
+    
     model_names = list(results.keys())
     n_models = len(model_names)
     
-    # We will arrange plots in a single row with N columns
-    # You can change to (2, 2) grid if preferred by changing subplots(2, 2)
+
     rows = 1
     cols = n_models
-    fig_size = (5 * cols, 5) # Dynamically size the figure width
+    fig_size = (5 * cols, 5)
     
     # --- FIGURE 1: ROC-AUC Curves ---
     fig1, axes1 = plt.subplots(rows, cols, figsize=fig_size, constrained_layout=True)
     fig1.suptitle('ROC-AUC Curves Comparison', fontsize=16)
     
-    if n_models == 1: axes1 = [axes1] # Handle single model case
+    if n_models == 1: axes1 = [axes1]
     
     for ax, name in zip(axes1, model_names):
         y_prob = results[name]['y_prob']
@@ -220,7 +214,7 @@ def visualize_performance(results, y_test):
         disp = ConfusionMatrixDisplay(confusion_matrix=cm)
         disp.plot(ax=ax, cmap='Blues', colorbar=False)
         ax.set_title(f'{name}')
-        ax.grid(False) # Turn off grid for heatmaps
+        ax.grid(False) 
 
     plt.show()
 
@@ -240,11 +234,11 @@ def main():
         print(f"Train features: {X_train.shape}, Test features: {X_test.shape}")
         
         print("\n--- 2. Training & Hyperparameter Optimization ---")
-        # Optimization runs here
+        
         best_model, all_results = train_and_optimize(X_train, y_train, X_test, y_test)
         
         print("\n--- 3. Visualizing Results ---")
-        # Visualization runs here
+        
         visualize_performance(all_results, y_test)
         
         print("\n--- 4. Saving Best Model ---")
