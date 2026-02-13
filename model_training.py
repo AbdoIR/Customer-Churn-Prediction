@@ -106,7 +106,7 @@ def train_and_optimize(X_train, y_train, X_test, y_test):
     """
     models = get_models_and_params()
     
-    all_results = {}
+    results = {}
     best_overall_score = 0
     best_overall_model_name = ""
     best_overall_model = None
