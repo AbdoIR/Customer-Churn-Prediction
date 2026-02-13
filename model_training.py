@@ -21,8 +21,6 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 import seaborn as sns
-
-# Set CPU limit for parallel processing
 os.environ['LOKY_MAX_CPU_COUNT'] = '4' 
 
 import joblib
@@ -30,7 +28,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from xgboost import XGBClassifier
 from sklearn.metrics import (accuracy_score, classification_report, confusion_matrix, 
-                             roc_auc_score, roc_curve, auc, precision_recall_curve, 
+                             roc_auc_score, roc_curve, precision_recall_curve, 
                              average_precision_score, ConfusionMatrixDisplay)
 from sklearn.model_selection import RandomizedSearchCV
 
@@ -41,6 +39,7 @@ TARGET_COL = 'Churn'
 RANDOM_STATE = 42
 MODELS_DIR = 'models'
 BEST_MODEL_PATH = os.path.join(MODELS_DIR, 'best_model.pkl')
+VISUALIZATIONS_DIR = 'visualisations'
 
 def load_data():
     """Loads processed training and testing datasets."""
@@ -75,15 +74,25 @@ def get_models_and_params():
         ),
         "Random Forest": (
             RandomForestClassifier(random_state=RANDOM_STATE, class_weight='balanced'),
-            {'n_estimators': [100, 200], 'max_depth': [10, 20, None], 'min_samples_split': [2, 5]}
+            {
+                'n_estimators': [100, 200],
+                'max_depth': [10, 20, None],
+                'min_samples_split': [2, 5],
+                'min_samples_leaf': [1, 2]
+            }
         ),
         "XGBoost": (
-            XGBClassifier(random_state=RANDOM_STATE, use_label_encoder=False, eval_metric='logloss'),
+            XGBClassifier(random_state=RANDOM_STATE, eval_metric='logloss'),
             {'n_estimators': [100, 200], 'learning_rate': [0.01, 0.1], 'max_depth': [3, 5], 'scale_pos_weight': [1, 3]}
         ),
         "Gradient Boosting": (
             GradientBoostingClassifier(random_state=RANDOM_STATE),
-            {'n_estimators': [100, 200], 'learning_rate': [0.01, 0.1], 'max_depth': [3, 5]}
+            {
+                'n_estimators': [50, 100],
+                'learning_rate': [0.05, 0.1],
+                'max_depth': [3, 5],
+                'subsample': [0.8, 1.0]
+            }
         )
     }
     return models
@@ -110,8 +119,8 @@ def train_and_optimize(X_train, y_train, X_test, y_test):
         search = RandomizedSearchCV(
             estimator=model,
             param_distributions=params,
-            n_iter=5, # Reduced to 5 for speed in demo, keep 20 for production
-            scoring='roc_auc', 
+            n_iter=5,  # Reduced for speed
+            scoring='roc_auc', # Optimizing for Discrimination not Accuracy
             cv=3,
             verbose=0,
             random_state=RANDOM_STATE,
@@ -141,17 +150,20 @@ def train_and_optimize(X_train, y_train, X_test, y_test):
             "roc_auc": roc
         }
         
-        print(f"{name:<25} | {roc:.4f}     | {acc:.4f}     | Optimized")
+        # Combined Score for Selection (Equal weight to Accuracy and ROC-AUC)
+        combined_score = (roc + acc) / 2
         
-        if roc > best_overall_score:
-            best_overall_score = roc
+        print(f"{name:<25} | {roc:.4f}     | {acc:.4f}     | Optimized (Score: {combined_score:.4f})")
+        
+        if combined_score > best_overall_score:
+            best_overall_score = combined_score
             best_overall_model_name = name
             best_overall_model = best_estimator
             
     print("-" * 65)
-    print(f"Best Model: {best_overall_model_name} with ROC-AUC: {best_overall_score:.4f}")
+    print(f"Best Model Selected: {best_overall_model_name} with Combined Score: {best_overall_score:.4f}")
     
-    return best_overall_model, all_results
+    return best_overall_model, results
 
 def visualize_performance(results, y_test):
     
@@ -216,7 +228,22 @@ def visualize_performance(results, y_test):
         ax.set_title(f'{name}')
         ax.grid(False) 
 
-    plt.show()
+    # Save Figure 3 (Confusion Matrix)
+    if not os.path.exists(VISUALIZATIONS_DIR):
+        os.makedirs(VISUALIZATIONS_DIR)
+        
+    fig3.savefig(os.path.join(VISUALIZATIONS_DIR, 'Figure_3.png'))
+    plt.close(fig3)
+    
+    # Also save Figure 1 and 2 here for clarity (since they were created above)
+    fig1.savefig(os.path.join(VISUALIZATIONS_DIR, 'Figure_1.png'))
+    plt.close(fig1)
+    
+    fig2.savefig(os.path.join(VISUALIZATIONS_DIR, 'Figure_2.png'))
+    plt.close(fig2)
+    
+    print(f"Visualizations saved to {VISUALIZATIONS_DIR}/")
+
 
 def save_model(model):
     """Saves the trained model to disk."""
@@ -234,12 +261,13 @@ def main():
         print(f"Train features: {X_train.shape}, Test features: {X_test.shape}")
         
         print("\n--- 2. Training & Hyperparameter Optimization ---")
+        print("Running RandomizedSearchCV (n_iter=20) on 4 models...")
+        print("Metric: ROC-AUC (prioritizing discrimination over accuracy)")
         
-        best_model, all_results = train_and_optimize(X_train, y_train, X_test, y_test)
+        best_model, results = train_and_optimize(X_train, y_train, X_test, y_test)
         
         print("\n--- 3. Visualizing Results ---")
-        
-        visualize_performance(all_results, y_test)
+        visualize_performance(results, y_test)
         
         print("\n--- 4. Saving Best Model ---")
         save_model(best_model)
