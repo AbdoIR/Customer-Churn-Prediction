@@ -2,3 +2,7 @@ local*
 *.csv
 models/
 /eda_results
+/__pycache__/
+*.ipynb_checkpoints
+*.log
+piece_of_data.py
