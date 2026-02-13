@@ -18,13 +18,17 @@ Models Evaluated:
 import pandas as pd
 import numpy as np
 import os
+import matplotlib.pyplot as plt
+import seaborn as sns
 os.environ['LOKY_MAX_CPU_COUNT'] = '4' 
 
 import joblib
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from xgboost import XGBClassifier
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score
+from sklearn.metrics import (accuracy_score, classification_report, confusion_matrix, 
+                             roc_auc_score, roc_curve, precision_recall_curve, 
+                             average_precision_score, ConfusionMatrixDisplay)
 from sklearn.model_selection import RandomizedSearchCV
 
 # --- CONFIGURATION ---
@@ -34,6 +38,7 @@ TARGET_COL = 'Churn'
 RANDOM_STATE = 42
 MODELS_DIR = 'models'
 BEST_MODEL_PATH = os.path.join(MODELS_DIR, 'best_model.pkl')
+VISUALIZATIONS_DIR = 'visualisations'
 
 def load_data():
     """Loads processed training and testing datasets."""
@@ -67,27 +72,21 @@ def get_models_and_params():
         "Random Forest": (
             RandomForestClassifier(random_state=RANDOM_STATE, class_weight='balanced'),
             {
-                'n_estimators': [100, 200, 300, 500],
-                'max_depth': [10, 20, 30, None],
-                'min_samples_split': [2, 5, 10],
-                'min_samples_leaf': [1, 2, 4]
+                'n_estimators': [100, 200],
+                'max_depth': [10, 20, None],
+                'min_samples_split': [2, 5],
+                'min_samples_leaf': [1, 2]
             }
         ),
         "XGBoost": (
-            XGBClassifier(random_state=RANDOM_STATE, use_label_encoder=False, eval_metric='logloss'),
-            {
-                'n_estimators': [100, 200, 300],
-                'learning_rate': [0.01, 0.05, 0.1, 0.2],
-                'max_depth': [3, 5, 7],
-                'subsample': [0.6, 0.8, 1.0],
-                'scale_pos_weight': [1, 3, 5, 7] # Critical for imbalance
-            }
+            XGBClassifier(random_state=RANDOM_STATE, eval_metric='logloss'),
+            {'n_estimators': [100, 200], 'learning_rate': [0.01, 0.1], 'max_depth': [3, 5], 'scale_pos_weight': [1, 3]}
         ),
         "Gradient Boosting": (
             GradientBoostingClassifier(random_state=RANDOM_STATE),
             {
-                'n_estimators': [100, 200, 300],
-                'learning_rate': [0.01, 0.05, 0.1],
+                'n_estimators': [50, 100],
+                'learning_rate': [0.05, 0.1],
                 'max_depth': [3, 5],
                 'subsample': [0.8, 1.0]
             }
@@ -115,7 +114,7 @@ def train_and_optimize(X_train, y_train, X_test, y_test):
         search = RandomizedSearchCV(
             estimator=model,
             param_distributions=params,
-            n_iter=20, 
+            n_iter=5,  # Reduced for speed
             scoring='roc_auc', # Optimizing for Discrimination not Accuracy
             cv=3,
             verbose=0,
@@ -148,29 +147,100 @@ def train_and_optimize(X_train, y_train, X_test, y_test):
             "best_params": search.best_params_
         }
         
-        print(f"{name:<25} | {roc:.4f}     | {acc:.4f}     | Optimized")
+        # Combined Score for Selection (Equal weight to Accuracy and ROC-AUC)
+        combined_score = (roc + acc) / 2
         
-        # Update best overall based on ROC-AUC
-        if roc > best_overall_score:
-            best_overall_score = roc
+        print(f"{name:<25} | {roc:.4f}     | {acc:.4f}     | Optimized (Score: {combined_score:.4f})")
+        
+        if combined_score > best_overall_score:
+            best_overall_score = combined_score
             best_overall_model_name = name
             best_overall_model = best_estimator
             
     print("-" * 65)
-    print(f"Best Model: {best_overall_model_name} with ROC-AUC: {best_overall_score:.4f}")
+    print(f"Best Model Selected: {best_overall_model_name} with Combined Score: {best_overall_score:.4f}")
     
-    # Detailed report for best model
-    print(f"\n--- Detailed Report for {best_overall_model_name} ---")
-    print(f"Best Params: {results[best_overall_model_name]['best_params']}")
+    return best_overall_model, results
+
+def visualize_performance(results, y_test):
     
-    y_pred_best = best_overall_model.predict(X_test)
-    print("\nClassification Report:")
-    print(classification_report(y_test, y_pred_best))
+    model_names = list(results.keys())
+    n_models = len(model_names)
     
-    print("Confusion Matrix:")
-    print(confusion_matrix(y_test, y_pred_best))
+
+    rows = 1
+    cols = n_models
+    fig_size = (5 * cols, 5)
     
-    return best_overall_model
+    # --- FIGURE 1: ROC-AUC Curves ---
+    fig1, axes1 = plt.subplots(rows, cols, figsize=fig_size, constrained_layout=True)
+    fig1.suptitle('ROC-AUC Curves Comparison', fontsize=16)
+    
+    if n_models == 1: axes1 = [axes1]
+    
+    for ax, name in zip(axes1, model_names):
+        y_prob = results[name]['y_prob']
+        roc_score = results[name]['roc_auc']
+        fpr, tpr, _ = roc_curve(y_test, y_prob)
+        
+        ax.plot(fpr, tpr, color='darkorange', lw=2, label=f'AUC = {roc_score:.2f}')
+        ax.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+        ax.set_xlim([0.0, 1.0])
+        ax.set_ylim([0.0, 1.05])
+        ax.set_xlabel('False Positive Rate')
+        ax.set_ylabel('True Positive Rate')
+        ax.set_title(f'{name}')
+        ax.legend(loc="lower right")
+        ax.grid(True, alpha=0.3)
+
+    # --- FIGURE 2: Precision-Recall Curves ---
+    fig2, axes2 = plt.subplots(rows, cols, figsize=fig_size, constrained_layout=True)
+    fig2.suptitle('Precision-Recall Curves Comparison', fontsize=16)
+    
+    if n_models == 1: axes2 = [axes2]
+    
+    for ax, name in zip(axes2, model_names):
+        y_prob = results[name]['y_prob']
+        precision, recall, _ = precision_recall_curve(y_test, y_prob)
+        avg_precision = average_precision_score(y_test, y_prob)
+        
+        ax.plot(recall, precision, color='green', lw=2, label=f'AP = {avg_precision:.2f}')
+        ax.set_xlabel('Recall')
+        ax.set_ylabel('Precision')
+        ax.set_title(f'{name}')
+        ax.legend(loc="lower left")
+        ax.grid(True, alpha=0.3)
+
+    # --- FIGURE 3: Confusion Matrices ---
+    fig3, axes3 = plt.subplots(rows, cols, figsize=fig_size, constrained_layout=True)
+    fig3.suptitle('Confusion Matrices Comparison', fontsize=16)
+    
+    if n_models == 1: axes3 = [axes3]
+    
+    for ax, name in zip(axes3, model_names):
+        y_pred = results[name]['y_pred']
+        cm = confusion_matrix(y_test, y_pred)
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+        disp.plot(ax=ax, cmap='Blues', colorbar=False)
+        ax.set_title(f'{name}')
+        ax.grid(False) 
+
+    # Save Figure 3 (Confusion Matrix)
+    if not os.path.exists(VISUALIZATIONS_DIR):
+        os.makedirs(VISUALIZATIONS_DIR)
+        
+    fig3.savefig(os.path.join(VISUALIZATIONS_DIR, 'Figure_3.png'))
+    plt.close(fig3)
+    
+    # Also save Figure 1 and 2 here for clarity (since they were created above)
+    fig1.savefig(os.path.join(VISUALIZATIONS_DIR, 'Figure_1.png'))
+    plt.close(fig1)
+    
+    fig2.savefig(os.path.join(VISUALIZATIONS_DIR, 'Figure_2.png'))
+    plt.close(fig2)
+    
+    print(f"Visualizations saved to {VISUALIZATIONS_DIR}/")
+
 
 def save_model(model):
     """Saves the trained model to disk."""
@@ -191,9 +261,12 @@ def main():
         print("Running RandomizedSearchCV (n_iter=20) on 4 models...")
         print("Metric: ROC-AUC (prioritizing discrimination over accuracy)")
         
-        best_model = train_and_optimize(X_train, y_train, X_test, y_test)
+        best_model, results = train_and_optimize(X_train, y_train, X_test, y_test)
         
-        print("\n--- 3. Saving Best Model ---")
+        print("\n--- 3. Visualizing Results ---")
+        visualize_performance(results, y_test)
+        
+        print("\n--- 4. Saving Best Model ---")
         save_model(best_model)
         
     except Exception as e:
