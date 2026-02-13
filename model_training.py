@@ -142,12 +142,14 @@ def train_and_optimize(X_train, y_train, X_test, y_test):
         acc = accuracy_score(y_test, y_pred)
         roc = roc_auc_score(y_test, y_prob)
         
-        # Store for visualization
-        all_results[name] = {
+        # Store comprehensive results for visualization
+        results[name] = {
+            "accuracy": acc, 
+            "roc_auc": roc, 
             "model": best_estimator,
-            "y_prob": y_prob,
-            "y_pred": y_pred,
-            "roc_auc": roc
+            "best_params": search.best_params_,
+            "y_prob": y_prob,     # Required for ROC/PR curves
+            "y_pred": y_pred      # Required for Confusion Matrix
         }
         
         # Combined Score for Selection (Equal weight to Accuracy and ROC-AUC)

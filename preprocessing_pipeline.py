@@ -22,12 +22,14 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.base import BaseEstimator, TransformerMixin
 from imblearn.over_sampling import SMOTE
+import joblib
 
 # --- CONFIGURATION ---
 DATA_PATH = 'WA_Fn-UseC_-Telco-Customer-Churn.csv'
 TARGET_COL = 'Churn'
 RANDOM_STATE = 42
 TEST_SIZE = 0.2
+MODELS_DIR = 'models'
 
 class TelcoFeatureEngineer(BaseEstimator, TransformerMixin):
     """
@@ -197,6 +199,14 @@ def main():
     
     train_final.to_csv('train_processed.csv', index=False)
     test_final.to_csv('test_processed.csv', index=False)
+    
+    # 7. Save Preprocessor (Encoder + Scaler)
+    if not os.path.exists(MODELS_DIR):
+        os.makedirs(MODELS_DIR)
+        
+    preprocessor_path = os.path.join(MODELS_DIR, 'preprocessor.pkl')
+    joblib.dump(preprocessor, preprocessor_path)
+    print(f"Preprocessor (Scaler + Encoder) saved to {preprocessor_path}")
     
     print("\nPipeline Complete.")
     print("Outputs: 'train_processed.csv', 'test_processed.csv'")
