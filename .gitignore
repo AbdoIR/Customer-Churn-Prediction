@@ -6,3 +6,5 @@ models/
 *.ipynb_checkpoints
 *.log
 piece_of_data.py
+create_new_data.py
+/data/
